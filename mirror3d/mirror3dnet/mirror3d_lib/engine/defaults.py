@@ -16,6 +16,7 @@ import itertools
 import torch.utils.data
 from collections import OrderedDict
 import os
+import time
 from mirror3d.utils.general_utils import check_converge
 
 from detectron2.engine.defaults import DefaultTrainer
@@ -68,10 +69,6 @@ def mirror3d_inference_on_dataset(model, data_loader, evaluator):
     logger.info("Start inference on {} images".format(len(data_loader)))
 
     total = len(data_loader)  # inference data loader must have a fixed length
-    if evaluator is None:
-        # create a no-op evaluator
-        evaluator = DatasetEvaluators([])
-    evaluator.reset()
 
     num_warmup = min(5, total - 1)
     start_time = time.perf_counter()
@@ -106,7 +103,6 @@ def mirror3d_inference_on_dataset(model, data_loader, evaluator):
             if torch.cuda.is_available():
                 torch.cuda.synchronize()
             total_compute_time += time.perf_counter() - start_compute_time
-            evaluator.process(inputs, outputs)
 
             iters_after_start = idx + 1 - num_warmup * int(idx >= num_warmup)
             seconds_per_img = total_compute_time / iters_after_start
@@ -136,10 +132,6 @@ def mirror3d_inference_on_dataset(model, data_loader, evaluator):
             total_compute_time_str, total_compute_time / (total - num_warmup), num_devices
         )
     )
-
-    # evaluate models output result
-    _ = evaluator.evaluate() 
-
     return output_list 
 
 
@@ -213,39 +205,18 @@ class Mirror3dTrainer(DefaultTrainer):
         """
         results = dict()
         logger = logging.getLogger(__name__)
-        if isinstance(evaluators, DatasetEvaluator):
-            evaluators = [evaluators]
-        if evaluators is not None:
-            assert len(cfg.DATASETS.TEST) == len(evaluators), "{} != {}".format(
-                len(cfg.DATASETS.TEST), len(evaluators)
-            )
         output_list = []
         for idx, dataset_name in enumerate(cfg.DATASETS.TEST):
+            a = time.time()
             data_loader = cls.build_test_loader(cfg, dataset_name)
-            # When evaluators are passed in as arguments,
-            # implicitly assume that evaluators can be created before data_loader.
-            if evaluators is not None:
-                evaluator = evaluators[idx]
-            else:
-                try:
-                    evaluator = cls.build_evaluator(cfg, dataset_name)
-                except NotImplementedError:
-                    logger.warn(
-                        "No evaluator found. Use `DefaultTrainer.test(evaluators=)`, "
-                        "or implement its `build_evaluator` method."
-                    )
-                    results[dataset_name] = {}
-                    continue
-            output_list= mirror3d_inference_on_dataset(model, data_loader, evaluator)
+            print("Data Loader time:", time.time() - a)
+            a = time.time()
+            output_list = mirror3d_inference_on_dataset(model, data_loader, None)
+            print("Output List time:", time.time() - a)
+            a = time.time()
             mirror3d_eval = Mirror3DNet_Eval(output_list, cfg)
             mirror3d_eval.eval_main()
-        if not cfg.EVAL:
-            cls.output_list = output_list
-            cls.IOU_list.append(mirror3d_eval.mean_IOU) 
-            if check_converge(score_list=cls.IOU_list):
-                print("model converged")
-                exit()
-
+            print("Mirror Eval time:", time.time() - a)
         return OrderedDict()
 
     @classmethod

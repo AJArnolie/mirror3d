@@ -148,7 +148,7 @@ def save_json(save_path, data):
     with open(save_path, "w") as fo:
         fo.write(out_json)
         fo.close()
-        print("json file saved to : ", save_path)
+        #print("json file saved to : ", save_path)
 
 
 def rreplace(s, old, new):

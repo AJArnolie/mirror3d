@@ -1,4 +1,5 @@
 import os
+import json
 import torch
 import numpy as np
 import sys
@@ -24,21 +25,19 @@ torch.multiprocessing.set_start_method('forkserver', force=True)
 def main(args):
     cfg = get_cfg() 
     cfg.merge_from_file(args.config)
-
-    train_name = args.coco_train.split("/")[-1].split(".")[0]
+    args.coco_val = os.path.join(args.coco_val_root, 'json_file/custom_data.json')
+    args.log_directory = os.path.join(args.coco_val_root, "refined_depth")
     val_name = args.coco_val.split("/")[-1].split(".")[0]
     
-    if not args.eval:
-        register_mirror3d_coco_instances(train_name, {}, args.coco_train, args.coco_train_root) 
+    build_custom_dataset_json(args.coco_val_root)
     register_mirror3d_coco_instances(val_name, {}, args.coco_val, args.coco_val_root) 
-
+    
     cfg.TRAIN_COCO_JSON = args.coco_train
     cfg.VAL_COCO_JSON = args.coco_val
     cfg.TRAIN_IMG_ROOT = args.coco_train_root
     cfg.VAL_IMG_ROOT = args.coco_val_root
-    cfg.TRAIN_NAME = train_name
     cfg.VAL_NAME = val_name
-    cfg.DATASETS.TRAIN = [train_name]
+    cfg.DATASETS.TRAIN = []
     cfg.DATASETS.TEST = [val_name]
     cfg.ANCHOR_NORMAL_NYP = args.anchor_normal_npy
     cfg.ANCHOR_NORMAL_CLASS_NUM = np.load(cfg.ANCHOR_NORMAL_NYP).shape[0]
@@ -59,69 +58,49 @@ def main(args):
     cfg.SOLVER.CHECKPOINT_PERIOD = args.checkpoint_save_freq
     cfg.TEST.EVAL_PERIOD = args.checkpoint_save_freq
     cfg.MODEL.WEIGHTS = args.resume_checkpoint_path
-    cfg.EVAL = args.eval
     cfg.REF_MODE = args.ref_mode
-    cfg.EVAL_SAVE_DEPTH = args.eval_save_depth
-    if os.path.exists(args.to_ref_txt):
-        cfg.REF_DEPTH_TO_REFINE = args.to_ref_txt
-        cfg.EVAL_INPUT_REF_DEPTH = True
-        cfg.EVAL_SAVE_DEPTH = True
-        print("eval depth for : ", cfg.REF_DEPTH_TO_REFINE)
+    cfg.EVAL_SAVE_DEPTH = True
+    cfg.EVAL_MASK_IOU = False
+    cfg.EVAL_INPUT_REF_DEPTH = True
+    cfg.REF_DEPTH_TO_REFINE = args.to_ref_txt
+    cfg.EVAL = True
+    
+    a = time.time()
+    model = Mirror3dTrainer.build_model(cfg)
+    print("Build model time:", time.time() - a)
+    a = time.time()
+    DetectionCheckpointer(model, save_dir=cfg.OUTPUT_DIR).resume_or_load(
+        cfg.MODEL.WEIGHTS, resume=args.resume
+    )
+    print("DetectionCheckpointer time:", time.time() - a)
+    a = time.time()
+    res = Mirror3dTrainer.test(cfg, model)
+    print("Test time:", time.time() - a)
 
-    # Create output folder 
-    if args.config.find("mirror3dnet_normal_config.yml") > 0:
-        method_name = "m3n_normal"
-    if args.config.find("mirror3dnet_config.yml") > 0:
-        method_name = "m3n_full"
-    if args.config.find("planercnn_config.yml") > 0:
-        method_name = "planercnn"
-    if args.config.find("mirror3dnet_30normal_config.yml") > 0:
-        method_name = "ablation_border_30"
-    if args.config.find("mirror3dnet_70normal_config.yml") > 0:
-        method_name = "ablation_border_70"
-    if args.refined_depth:
-        depth_tag = "refD"
-    else:
-        depth_tag = "rawD"
-    if os.path.exists(args.resume_checkpoint_path):
-        resume_tag = "resume"
-    else:
-        resume_tag = "scratch"
+    return res
 
-    output_folder_name = "{}_{}_{}".format(method_name, depth_tag, resume_tag) + "_" + time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime()) 
-    cfg.OUTPUT_DIR = os.path.join(args.log_directory, output_folder_name)
-    os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
-
-    if cfg.EVAL:
-        cfg.EVAL_SAVE_DEPTH = True
-        eval_output_tag = ""
-        if os.path.exists(cfg.REF_DEPTH_TO_REFINE):
-            method_tag = cfg.REF_DEPTH_TO_REFINE.split("/")[-2]
-            cfg.OUTPUT_DIR = os.path.join(cfg.OUTPUT_DIR, method_tag) 
-        os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
-        print("eval result saved  to : ", cfg.OUTPUT_DIR)
-        model = Mirror3dTrainer.build_model(cfg)
-        DetectionCheckpointer(model, save_dir=cfg.OUTPUT_DIR).resume_or_load(
-            cfg.MODEL.WEIGHTS, resume=args.resume
-        )
-        res = Mirror3dTrainer.test(cfg, model)
-
-        return res
-
-    """
-    If you'd like to do anything fancier than the standard training logic,
-    consider writing your own training loop (see plain_train_net.py) or
-    subclassing the trainer.
-    """
-
-    trainer = Mirror3dTrainer(cfg)
-    trainer.resume_or_load(resume=args.resume)
-
-    yml_save_path = os.path.join(cfg.OUTPUT_DIR, "training_config.yml")
-    with open(yml_save_path, 'w') as f:
-        with redirect_stdout(f): print(cfg.dump())
-
-    return trainer.train()
+def build_custom_dataset_json(data_path):
+    data = {}
+    data['annotations'] = []
+    data['info'] = {}
+    data['categories'] = [{'id': 1, 'name': 'mirror', 'supercategory': 'mirror'}]
+    data['images'] = []
+    for i, f in enumerate(sorted(os.listdir(os.path.join(data_path, "downsampled_images")))):
+        img = os.path.join(data_path, "downsampled_images", f)
+        pred_depth = os.path.join(data_path, "GLP_depth", f.split(".")[0] + ".png")
+        img_data = {'height': 480,
+                    'width': 640,
+                    'id': i,
+                    'mirror_color_image_path': img,
+                    'raw_meshD_path': pred_depth,
+                    'raw_sensorD_path': pred_depth,
+                    'refined_meshD_path': "",
+                    'refined_sensorD_path': "",
+                    'mirror_instance_mask_path': "",}
+        data['images'].append(img_data)
+    json_data = json.dumps(data)
+    with open(os.path.join(data_path, 'json_file', 'custom_data.json'), 'w') as outfile:
+        outfile.write(json_data)
 
 
 
@@ -169,31 +148,14 @@ if __name__ == "__main__":
     # Therefore we use a deterministic way to obtain port,
     # so that users are aware of orphan processes by seeing the port occupied.
     port = 2 ** 15 + 2 ** 14 + hash(os.getuid() if sys.platform != "win32" else 1) % 2 ** 14
-    parser.add_argument(
-        "--dist-url",
-        default="tcp://127.0.0.1:{}".format(port),
-        help="initialization URL for pytorch distributed backend. See "
-        "https://pytorch.org/docs/stable/distributed.html for details.",
-    )
-    parser.add_argument(
-        "opts",
-        help="Modify config options using the command-line",
-        default=None,
-        nargs=argparse.REMAINDER,
-    )
-
+    parser.add_argument("--dist-url", default="tcp://127.0.0.1:{}".format(port), help="initialization URL for pytorch distributed backend. See "
+        "https://pytorch.org/docs/stable/distributed.html for details.",)
+    parser.add_argument("opts", help="Modify config options using the command-line", default=None, nargs=argparse.REMAINDER,)
 
     args = parser.parse_args()
-    print("Command Line Args:", args)
 
-
-    launch(
-        main,
-        args.num_gpus,
+    launch(main, args.num_gpus,
         num_machines=args.num_machines,
         machine_rank=args.machine_rank,
         dist_url=args.dist_url,
-        args=(args,),
-    )
-
-    print("############## config file ###############", args.config)
+        args=(args,),)

@@ -125,15 +125,18 @@ def load_mirror3d_coco_json(json_file, image_root, dataset_name=None, extra_anno
         else:
             record["mirror_color_image_path"] = img_dict["mirror_color_image_path"]
         if "mirror_instance_mask_path" in img_dict:
-            record["mirror_instance_mask_path"]= os.path.join(image_root, img_dict["mirror_instance_mask_path"])
+            record["mirror_instance_mask_path"] = ""
+            #record["mirror_instance_mask_path"]= os.path.join(image_root, img_dict["mirror_instance_mask_path"])
         if "raw_sensorD_path" in img_dict:
             record["raw_sensorD_path"]= os.path.join(image_root, img_dict["raw_sensorD_path"])
         if "refined_sensorD_path" in img_dict:
-            record["refined_sensorD_path"]= os.path.join(image_root, img_dict["refined_sensorD_path"])
+            record["refined_sensorD_path"] = ""
+            #record["refined_sensorD_path"]= os.path.join(image_root, img_dict["refined_sensorD_path"])
         if "raw_meshD_path" in img_dict:
             record["raw_meshD_path"]= os.path.join(image_root, img_dict["raw_meshD_path"])
         if "refined_meshD_path" in img_dict:
-            record["refined_meshD_path"]= os.path.join(image_root, img_dict["refined_meshD_path"])
+            record["refined_meshD_path"] = "" 
+        #    record["refined_meshD_path"]= os.path.join(image_root, img_dict["refined_meshD_path"])
         record["height"] = img_dict["height"]
         record["width"] = img_dict["width"]
         record["dataset_name"] = dataset_name

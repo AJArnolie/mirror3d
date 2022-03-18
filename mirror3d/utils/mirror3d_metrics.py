@@ -148,11 +148,11 @@ class Mirror3dEval:
         else:
             log_file_json[tag] = [table_one_line_result]
         save_json(method_log_file_json_save_path, log_file_json)
-        print("update info file : {}".format(method_log_file_json_save_path))
+        #print("update info file : {}".format(method_log_file_json_save_path))
 
         latex_temp_save_path = os.path.join(self.main_output_folder, one_name)
         save_json(latex_temp_save_path, table_one_line_result)
-        print("latex result saved to : {}".format(latex_temp_save_path))
+        #print("latex result saved to : {}".format(latex_temp_save_path))
 
     def print_mirror3D_score(self):
 
@@ -390,29 +390,11 @@ class Mirror3dEval:
     def save_result(self, main_output_folder, pred_depth, depth_shift, color_img_path, rawD_gt_depth_path,
                     refD_gt_depth_path, mask_path):
 
-        self.main_output_folder = main_output_folder
-        if os.path.exists(self.main_output_folder) and self.to_create_folder:
-            self.main_output_folder = self.main_output_folder + "_{}".format(random.randint(0, 10000))
-            os.makedirs(self.main_output_folder, exist_ok=True)
-            self.to_create_folder = False
-        elif not os.path.exists(self.main_output_folder):
-            self.to_create_folder = False
-
         pred_depth = np.array(pred_depth)
         depth_shift = np.array(depth_shift)
-
-        info_txt_save_path = os.path.join(main_output_folder, "color_mask_gtD_predD.txt")
-        pred_depth_scaled = pred_depth * depth_shift
-        pred_depth_scaled = pred_depth_scaled.astype(np.uint16)
-        raw_d_folder = os.path.join(self.dataset_root, rawD_gt_depth_path.replace(self.dataset_root, "").split("/")[1])
-        depth_np_save_path = rawD_gt_depth_path.replace(raw_d_folder, main_output_folder + "/pred_depth")
-        pred_d_save_folder = os.path.split(depth_np_save_path)[0]
-        os.makedirs(pred_d_save_folder, exist_ok=True)
-        cv2.imwrite(depth_np_save_path, pred_depth_scaled, [cv2.IMWRITE_PNG_COMPRESSION, 0])
-
-        with open(info_txt_save_path, "a") as file:
-            file.write("{} {} {} {}".format(color_img_path, mask_path, refD_gt_depth_path, depth_np_save_path))
-            file.write("\n")
+        pred_depth_scaled = (pred_depth * depth_shift).astype(np.uint16)
+        depth_np_save_path = main_output_folder + "/" + color_img_path.split("/")[-1]
+        cv2.imwrite(depth_np_save_path[:-4] + ".png", pred_depth_scaled, [cv2.IMWRITE_PNG_COMPRESSION, 0])
 
 
 class SSIM(torch.nn.Module):
