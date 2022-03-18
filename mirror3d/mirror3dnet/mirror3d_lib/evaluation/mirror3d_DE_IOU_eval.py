@@ -90,22 +90,18 @@ class Mirror3DNet_Eval:
 
             if instances.to("cpu").has("pred_masks"):
                 for index, one_pred_mask in enumerate(instances.to("cpu").pred_masks):
-                    print("Pred Mask", index)
                     to_refine_area = one_pred_mask.numpy().astype(bool)
                     to_refine_area = np.logical_and(pred_mask==False, to_refine_area)
                     if to_refine_area.sum() == 0:
-                        print("HEREEEEE 1")
                         continue
                     pred_mask = np.logical_or(pred_mask , one_pred_mask)
                     if instances.to("cpu").pred_anchor_classes[index] >= anchor_normal.shape[0]:
-                        print("HEREEEEE 2")
                         continue
                     
                     pred_normal = anchor_normal[instances.to("cpu").pred_anchor_classes[index]] +  instances.to("cpu").pred_residuals[index].numpy()
                     pred_normal = unit_vector(pred_normal)
 
                     if "border" in self.cfg.REF_MODE:
-                        print("Border")
                         depth_to_ref = refine_depth_fun.refine_depth_by_mirror_border(one_pred_mask.numpy().astype(bool).squeeze(), pred_normal, depth_to_ref)
                     else:
                         depth_to_ref = refine_depth_fun.refine_depth_by_mirror_area(one_pred_mask.numpy().astype(bool).squeeze(), pred_normal, depth_to_ref)
